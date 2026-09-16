@@ -66,8 +66,8 @@ class CommandRunner:
 def build_parser() -> argparse.ArgumentParser:
     """Constructs the CLI argument parser with subcommands."""
     parser = argparse.ArgumentParser(
-        prog="polyglot",
-        description="CLI utility for managing multi-language vocabulary & audio pronunciations.",
+        prog="llm",
+        description="Language Learning Manager; CLI utility for managing multi-language vocabulary & audio pronunciations.",
     )
     subparsers = parser.add_subparsers(
         dest="command", help="Available subcommands"
