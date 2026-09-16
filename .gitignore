@@ -1,0 +1,11 @@
+# Python virtual environment
+.venv/
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+
+# Local database and cached MP3 files
+*.db
+audio_cache/
+media/

@@ -1,0 +1,18 @@
+[project]
+name = "language-learning-module"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "edge-tts>=7.2.8",
+    "peewee>=4.5.1",
+    "pygame>=2.6.1",
+]
+
+[project.scripts]
+language-learning-module = "language_learning_module:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
