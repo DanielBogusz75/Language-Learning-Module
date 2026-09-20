@@ -2,6 +2,10 @@
 
 import asyncio
 from pathlib import Path
+import os
+
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+
 import pygame
 import edge_tts
 
@@ -9,26 +13,28 @@ import edge_tts
 class PronunciationEngine:
     """Manages downloading, storing, and playing TTS audio files per language."""
 
-    # Default neural voices for common target languages
     DEFAULT_VOICES = {
-        "pl": "pl-PL-MarekNeural",  # Polish (Male) or "pl-PL-ZofiaNeural" (Female)
-        "nl": "nl-NL-ColetteNeural",  # Dutch
-        "de": "de-DE-KillianNeural",  # German
-        "en": "en-US-ChristopherNeural",  # English
-        "es": "es-ES-AlvaroNeural",  # Spanish
+        "pl": "pl-PL-MarekNeural",
+        "nl": "nl-NL-ColetteNeural",
+        "de": "de-DE-KillianNeural",
+        "en": "en-US-ChristopherNeural",
+        "es": "es-ES-AlvaroNeural",
     }
 
     def __init__(self, base_audio_dir: str | Path = "audio_cache"):
         self.base_dir = Path(base_audio_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        pygame.mixer.init()
+        self.mixer_ready = False
+        try:
+            pygame.mixer.init()
+            self.mixer_ready = True
+        except Exception:
+            self.mixer_ready = False
 
     def _get_file_path(self, text: str, lang_code: str) -> Path:
-        """Generate a safe, subfolder-isolated path for the MP3 file."""
         lang_folder = self.base_dir / lang_code.lower()
         lang_folder.mkdir(exist_ok=True)
 
-        # Sanitize text to create a clean filename
         safe_filename = (
             "".join(c for c in text.lower() if c.isalnum() or c in (" ", "_"))
             .strip()
@@ -39,14 +45,12 @@ class PronunciationEngine:
     async def _download_tts(
         self, text: str, output_path: Path, voice: str
     ) -> None:
-        """Asynchronously stream TTS audio from Edge API to disk."""
         communicate = edge_tts.Communicate(text, voice)
         await communicate.save(str(output_path))
 
     def get_or_download_audio(
         self, text: str, lang_code: str = "pl", voice: str | None = None
     ) -> Path:
-        """Retrieve local MP3 path, downloading it via TTS if it doesn't exist."""
         file_path = self._get_file_path(text, lang_code)
 
         if not file_path.exists():
@@ -67,31 +71,25 @@ class PronunciationEngine:
     def speak(
         self, text: str, lang_code: str = "pl", voice: str | None = None
     ) -> Path:
-        """Fetch/download the MP3 and play it out loud."""
         mp3_path = self.get_or_download_audio(
             text, lang_code=lang_code, voice=voice
         )
 
-        # Load and play audio via Pygame
+        if not self.mixer_ready:
+            print(f"Audio playback is unavailable in this environment; saved to {mp3_path}")
+            return mp3_path
+
         pygame.mixer.music.load(str(mp3_path))
         pygame.mixer.music.play()
 
-        # Wait until playback finishes before continuing
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(10)
 
         return mp3_path
 
 
-# --- Example Usage ---
 if __name__ == "__main__":
     engine = PronunciationEngine(base_audio_dir="media/pronunciations")
-
-    # Speak Polish word (downloads to media/pronunciations/pl/pic.mp3 on first run)
     engine.speak(text="pić", lang_code="pl")
-
-    # Speak Dutch word (downloads to media/pronunciations/nl/drinken.mp3)
     engine.speak(text="drinken", lang_code="nl")
-
-    # Custom female Polish voice option
     engine.speak(text="dziękuję", lang_code="pl", voice="pl-PL-ZofiaNeural")

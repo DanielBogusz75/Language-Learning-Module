@@ -9,3 +9,6 @@ __pycache__/
 *.db
 audio_cache/
 media/
+
+# Continue configuration files
+.continue/

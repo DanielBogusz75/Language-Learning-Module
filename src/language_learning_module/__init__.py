@@ -1,2 +1,5 @@
+from llm import main as llm_main
+
+
 def main() -> None:
-    print("Hello from language-learning-module!")
+    llm_main()
