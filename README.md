@@ -6,6 +6,14 @@ Launch the full-screen terminal UI with:
 uv run llm.py
 ```
 
+Open the help Markdown editor separately with:
+
+```bash
+uv run help-editor
+```
+
+The editor can also be opened from `Application > Help` with the `Edit help` button.
+
 The interface is resizable and supports mouse interaction, dropdowns, buttons, and keyboard shortcuts. The saved interface language and language pair live in `llm_config.json`.
 
 To add another interface language, add its code to `available_ui_languages` and add translated labels under `translations`. Missing labels fall back to English, so a new language can be introduced incrementally:

@@ -1,0 +1,22 @@
+{
+  "application": {
+    "en": {
+      "title": "Language Learning Module Help",
+      "markdown": "# Language Learning Module Help\n\nBuild vocabulary, example sentences, and pronunciation practice in one place.\n\n## Main areas\n\n- **Words**: add, edit, categorize, and sort vocabulary.\n- **Sentences**: store examples and their translations.\n- **Audio**: listen to words and sentences.\n- **Application > Settings**: change the interface language and active language pair.\n\n## Tables\n\nClick a column heading to sort. Click the same heading again to reverse the order. The arrow in the heading shows the active direction."
+    },
+    "nl": {
+      "title": "Hulp bij de Taalleermodule",
+      "markdown": "# Hulp bij de Taalleermodule\n\nBouw woordenschat, voorbeeldzinnen en uitspraak in één toepassing.\n\n## Hoofdonderdelen\n\n- **Woorden**: woordenschat toevoegen, bewerken, indelen en sorteren.\n- **Zinnen**: voorbeelden en vertalingen opslaan.\n- **Audio**: woorden en zinnen beluisteren.\n- **Applicatie > Instellingen**: de interfacetaal en het actieve talenpaar wijzigen.\n\n## Tabellen\n\nKlik op een kolomkop om te sorteren. Klik nogmaals op dezelfde kop om de volgorde om te keren. De pijl in de kop toont de actieve sorteerrichting."
+    }
+  },
+  "source_languages": {
+    "nl": {
+      "en": "**Source language: Dutch (Nederlands)**\n\nTranslations, category names, literal translations, and notes can be written in Dutch."
+    }
+  },
+  "target_languages": {
+    "pl": {
+      "en": "**Target language: Polish (polski)**\n\nPolish uses Latin letters with additional characters.\n\n### International QWERTY / AltGr\n\nUse **Right Alt (AltGr)** with these letters:\n\n| Shortcut | Character |\n| --- | --- |\n| `AltGr+a` | ą |\n| `AltGr+c` | ć |\n| `AltGr+e` | ę |\n| `AltGr+l` | ł |\n| `AltGr+n` | ń |\n| `AltGr+o` | ó |\n| `AltGr+s` | ś |\n| `AltGr+x` | ź |\n| `AltGr+z` | ż |\n\nFor uppercase letters, hold **Shift** while pressing the letter after `AltGr`.\n\n### Linux Unicode input\n\nIn applications that support Unicode input:\n\n1. Hold `Ctrl+Shift` and press `U`.\n2. Release the keys.\n3. Type the hexadecimal code point.\n4. Press `Enter` or `Space`.\n\n| Character | Code point |\n| --- | --- |\n| ą | `0105` |\n| ć | `0107` |\n| ę | `0119` |\n| ł | `0142` |\n| ń | `0144` |\n| ó | `00F3` |\n| ś | `015B` |\n| ź | `017A` |\n| ż | `017C` |\n\nExample: `Ctrl+Shift+U`, `0105`, `Enter` produces **ą**.\n\n### Windows Unicode input\n\nIn an application that supports the `Alt+X` method, type the code point and press `Alt+X`. For example, type `0105`, then press `Alt+X` to produce **ą**.\n\nIf these methods do not work, enable a Polish keyboard layout or use the operating system character picker."
+    }
+  }
+}

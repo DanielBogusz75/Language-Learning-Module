@@ -17,10 +17,11 @@ from rich.table import Table
 import questionary
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Select, Static, TextArea
+from textual.events import MouseDown
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Markdown, Select, Static, TextArea
 
 from audio_manager import PronunciationEngine
-from polyglot_db import UniversalDictionary
+from polyglot_db import Category, UniversalDictionary
 
 console = Console()
 
@@ -344,6 +345,12 @@ class CommandRunner:
             primary_translation=args.translation,
             part_of_speech=pos,
             categories=cats,
+            gender=getattr(args, "gender", None),
+            grammatical_aspect=getattr(args, "grammatical_aspect", None),
+            governed_case=getattr(args, "governed_case", None),
+            description=getattr(args, "description", None),
+            inflections=getattr(args, "inflections", None),
+            synonyms=getattr(args, "synonyms", None),
         )
 
         if getattr(args, "speak", False):
@@ -668,6 +675,7 @@ class LearningApp(App):
     .actions { height: 3; margin-top: 1; }
     .actions Button { margin-right: 1; }
     DataTable { height: auto; min-height: 8; }
+    DataTable > .datatable--header { color: $accent; text-style: bold; }
     .form-label { width: 20%; min-width: 14; max-width: 24; }
     """
 
@@ -689,6 +697,11 @@ class LearningApp(App):
         self._open_menu: str | None = None
         self._settings_form_number = 0
         self._settings_ids: dict[str, str] = {}
+        self._category_form_number = 0
+        self._category_ids: dict[str, str] = {}
+        self._category_rows: list[dict] = []
+        self._category_filter_number = 0
+        self._category_filter_ids: dict[str, str] = {}
         self._edit_form_number = 0
         self._edit_ids: dict[str, str] = {}
         self._last_table_selection: tuple[str | None, int, float] = (None, -1, 0.0)
@@ -697,6 +710,12 @@ class LearningApp(App):
         self._table_number = 0
         self._clipboard_value: str | None = None
         self._clipboard_process: subprocess.Popen[str] | None = None
+        self._context_word: dict | None = None
+        self._word_category: str | None = None
+        self._word_sort_key: str | None = None
+        self._word_sort_reverse = False
+        self._sentence_sort_key: str | None = None
+        self._sentence_sort_reverse = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -706,7 +725,6 @@ class LearningApp(App):
                 yield Button(self.strings["menu_words"], id="menu-words")
                 yield Button(self.strings["menu_sentences"], id="menu-sentences")
                 yield Button(self.strings["menu_audio"], id="menu-audio")
-                yield Button(self.strings["menu_settings"], id="menu-settings")
             with Vertical(id="menu-popup"):
                 pass
             with Horizontal(id="context-bar"):
@@ -743,7 +761,6 @@ class LearningApp(App):
             "#menu-words": "menu_words",
             "#menu-sentences": "menu_sentences",
             "#menu-audio": "menu_audio",
-            "#menu-settings": "menu_settings",
         }
         for selector, key in labels.items():
             self.query_one(selector, Button).label = self.strings[key]
@@ -756,14 +773,22 @@ class LearningApp(App):
             return
         popup.remove_children()
         menu_items = {
-            "file": [(self.strings["menu_exit"], "menu-exit")],
-            "words": [(self.strings["list_words"], "nav-words"), (self.strings["add_word"], "nav-add-word")],
+            "file": [
+                (self.strings["help"], "nav-help"),
+                (self.strings["manage_categories"], "nav-categories"),
+                (self.strings["config"], "nav-settings"),
+                (self.strings["menu_exit"], "menu-exit"),
+            ],
+            "words": [
+                (self.strings["view_by_category"], "nav-category-words"),
+                (self.strings["list_words"], "nav-words"),
+                (self.strings["add_word"], "nav-add-word"),
+            ],
             "sentences": [(self.strings["show_sentences"], "nav-sentences"), (self.strings["add_sentence"], "nav-add-sentence")],
             "audio": [
                 (self.strings["speak_word"], "nav-speak-word"),
                 (self.strings["speak_sentence"], "nav-speak-sentence"),
             ],
-            "settings": [(self.strings["config"], "nav-settings")],
         }
         for label, item_id in menu_items[menu]:
             self._menu_item_number += 1
@@ -776,6 +801,71 @@ class LearningApp(App):
     def close_menu(self) -> None:
         self.query_one("#menu-popup", Vertical).display = False
         self._open_menu = None
+
+    def _word_entry(self, word) -> dict:
+        return {
+            "lemma": word.lemma,
+            "translation": word.primary_translation,
+            "part_of_speech": word.part_of_speech,
+            "gender": word.gender,
+            "grammatical_aspect": word.grammatical_aspect,
+            "governed_case": word.governed_case,
+            "description": word.description,
+            "inflections": word.inflections,
+            "synonyms": word.synonyms,
+        }
+
+    def show_sentence_word_menu(self, word: dict) -> None:
+        popup = self.query_one("#menu-popup", Vertical)
+        popup.remove_children()
+        self._context_word = word
+        self._menu_item_number += 1
+        popup.mount(Button(self.strings["view_word"], id=f"context-view-word-{self._menu_item_number}"))
+        self._menu_item_number += 1
+        popup.mount(Button(self.strings["back"], id=f"context-close-{self._menu_item_number}"))
+        popup.display = True
+        self._open_menu = "word-context"
+
+    def show_word_context_menu(self, word: dict) -> None:
+        popup = self.query_one("#menu-popup", Vertical)
+        popup.remove_children()
+        self._context_word = word
+        actions = (
+            (self.strings["context_speak_word"], "context-speak-word"),
+            (self.strings["context_show_sentences"], "context-show-word-sentences"),
+            (self.strings["context_edit_word"], "context-edit-word"),
+            (self.strings["back"], "context-close"),
+        )
+        for label, action in actions:
+            self._menu_item_number += 1
+            popup.mount(Button(label, id=f"{action}-{self._menu_item_number}"))
+        popup.display = True
+        self._open_menu = "word-context"
+
+    def on_mouse_down(self, event: MouseDown) -> None:
+        if event.button != 3 or not isinstance(event.widget, DataTable):
+            return
+        table = event.widget
+        table_id = table.id or ""
+        if table_id.startswith("words-table-"):
+            row = table.hover_row
+            if row is None or row < 0 or row >= len(self._word_rows):
+                return
+            self.show_word_context_menu(self._word_rows[row])
+            event.stop()
+            return
+        if not table_id.startswith("sentences-table-"):
+            return
+        row = table.hover_row
+        if row is None or row < 0 or table.hover_column != 0 or row >= len(self._sentence_rows):
+            return
+        entry = self._sentence_rows[row]
+        word = self.runner.dict_app.get_word(
+            self.runner._current_target_lang(), self.runner._current_source_lang(), str(entry["lemma"])
+        )
+        if word is not None:
+            self.show_sentence_word_menu(self._word_entry(word))
+            event.stop()
 
     @staticmethod
     def _select_is_empty(value) -> bool:
@@ -870,22 +960,44 @@ root.mainloop()
             table.add_row(*row)
         return table
 
-    def refresh_dashboard(self) -> None:
+    def _sort_rows(self, rows: list[dict], key: str | None, reverse: bool) -> list[dict]:
+        if key is None:
+            return rows
+        if key == "sentence_count":
+            return sorted(rows, key=lambda row: int(row.get(key) or 0), reverse=reverse)
+        return sorted(rows, key=lambda row: str(row.get(key) or "").casefold(), reverse=reverse)
+
+    @staticmethod
+    def _sort_header(label: str, key: str, active_key: str | None, reverse: bool) -> str:
+        if key != active_key:
+            return label
+        return f"{label} {'↓' if reverse else '↑'}"
+
+    def refresh_dashboard(self, category: str | None = None) -> None:
         self._save_context()
         entries = self.runner.dict_app.get_vocabulary(
-            self.runner._current_target_lang(), self.runner._current_source_lang()
+            self.runner._current_target_lang(),
+            self.runner._current_source_lang(),
+            category=category,
         )
-        self._word_rows = entries
+        self._word_category = category
+        self._word_rows = self._sort_rows(entries, self._word_sort_key, self._word_sort_reverse)
         self._table_number += 1
         table_id = f"words-table-{self._table_number}"
         self._set_status(
-            f"{self.runner._current_target_lang()} -> {self.runner._current_source_lang()} | {len(entries)} words"
+            f"{self.runner._current_target_lang()} -> {self.runner._current_source_lang()}"
+            f" | {category + ' | ' if category else ''}{len(entries)} words"
         )
         view = self.query_one("#view", ScrollableContainer)
         view.remove_children()
         view.mount(self._table(
-            [self.strings["table_lemma"], self.strings["table_translation"], self.strings["table_pos"], self.strings["table_count"]],
-            [[str(item["lemma"]), str(item["translation"]), str(item["part_of_speech"]), str(item["sentence_count"])] for item in entries],
+            [
+                self._sort_header(self.strings["table_lemma"], "lemma", self._word_sort_key, self._word_sort_reverse),
+                self._sort_header(self.strings["table_translation"], "translation", self._word_sort_key, self._word_sort_reverse),
+                self._sort_header(self.strings["table_pos"], "part_of_speech", self._word_sort_key, self._word_sort_reverse),
+                self._sort_header(self.strings["table_count"], "sentence_count", self._word_sort_key, self._word_sort_reverse),
+            ],
+            [[str(item["lemma"]), str(item["translation"]), str(item["part_of_speech"]), str(item["sentence_count"])] for item in self._word_rows],
             table_id,
         ))
 
@@ -907,18 +1019,25 @@ root.mainloop()
     def show_words(self) -> None:
         self.refresh_dashboard()
 
-    def show_sentences(self) -> None:
+    def show_sentences(self, word_lemma: str | None = None) -> None:
         self._save_context()
         sentences = self.runner.dict_app.get_sentences(self.runner._current_target_lang(), self.runner._current_source_lang())
-        self._sentence_rows = sentences
+        if word_lemma is not None:
+            sentences = [item for item in sentences if item["lemma"] == word_lemma]
+        self._sentence_rows = self._sort_rows(sentences, self._sentence_sort_key, self._sentence_sort_reverse)
         self._table_number += 1
         table_id = f"sentences-table-{self._table_number}"
         self._set_status(f"{len(sentences)} sentences")
         view = self.query_one("#view", ScrollableContainer)
         view.remove_children()
         view.mount(self._table(
-            ["Lemma", "Target", "Literal", "Translation"],
-            [[str(item["lemma"]), str(item["target_text"]), str(item["source_literal"]), str(item["source_fluent"])] for item in sentences],
+            [
+                self._sort_header(self.strings["table_lemma"], "lemma", self._sentence_sort_key, self._sentence_sort_reverse),
+                self._sort_header(self.strings["table_target"], "target_text", self._sentence_sort_key, self._sentence_sort_reverse),
+                self._sort_header(self.strings["table_literal"], "source_literal", self._sentence_sort_key, self._sentence_sort_reverse),
+                self._sort_header(self.strings["table_fluent"], "source_fluent", self._sentence_sort_key, self._sentence_sort_reverse),
+            ],
+            [[str(item["lemma"]), str(item["target_text"]), str(item["source_literal"]), str(item["source_fluent"])] for item in self._sentence_rows],
             table_id,
         ))
 
@@ -930,9 +1049,37 @@ root.mainloop()
         if table_id != previous_table or event.cursor_row != previous_row or now - previous_time > 0.6:
             return
         if table_id.startswith("words-table-") and event.cursor_row < len(self._word_rows):
-            self.show_edit_word(self._word_rows[event.cursor_row])
+            self.show_word_context_menu(self._word_rows[event.cursor_row])
         elif table_id.startswith("sentences-table-") and event.cursor_row < len(self._sentence_rows):
             self.show_edit_sentence(self._sentence_rows[event.cursor_row])
+        elif table_id.startswith("categories-table-") and event.cursor_row < len(self._category_rows):
+            self.show_category_form(self._category_rows[event.cursor_row])
+
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        table_id = event.data_table.id or ""
+        column_index = getattr(event, "column_index", getattr(event, "cursor_column", -1))
+        if table_id.startswith("words-table-"):
+            sort_keys = ("lemma", "translation", "part_of_speech", "sentence_count")
+            if column_index < 0 or column_index >= len(sort_keys):
+                return
+            key = sort_keys[column_index]
+            if self._word_sort_key == key:
+                self._word_sort_reverse = not self._word_sort_reverse
+            else:
+                self._word_sort_key = key
+                self._word_sort_reverse = False
+            self.refresh_dashboard(category=self._word_category)
+        elif table_id.startswith("sentences-table-"):
+            sort_keys = ("lemma", "target_text", "source_literal", "source_fluent")
+            if column_index < 0 or column_index >= len(sort_keys):
+                return
+            key = sort_keys[column_index]
+            if self._sentence_sort_key == key:
+                self._sentence_sort_reverse = not self._sentence_sort_reverse
+            else:
+                self._sentence_sort_key = key
+                self._sentence_sort_reverse = False
+            self.show_sentences()
 
     def _new_edit_id(self, name: str) -> str:
         return f"edit-{name}-{self._edit_form_number}"
@@ -940,13 +1087,19 @@ root.mainloop()
     def show_edit_word(self, entry: dict) -> None:
         self._edit_form_number += 1
         suffix = str(self._edit_form_number)
-        self._edit_ids = {name: f"edit-{name}-{suffix}" for name in ("lemma", "translation", "pos", "save", "copy")}
+        word_fields = ("lemma", "translation", "pos", "categories", "gender", "aspect", "case", "description", "inflections", "synonyms")
+        self._edit_ids = {name: f"edit-{name}-{suffix}" for name in (*word_fields, "save", "copy")}
         view = self.query_one("#view", ScrollableContainer)
         view.remove_children()
         view.mount(Label(self.strings["update_word"]))
         view.mount(self._form_row(self.strings["prompt_lemma"], Input(value=str(entry["lemma"]), id=self._edit_ids["lemma"], classes="form-control")))
         view.mount(self._form_row(self.strings["prompt_translation"], Input(value=str(entry["translation"]), id=self._edit_ids["translation"], classes="form-control")))
         view.mount(self._form_row(self.strings["prompt_pos"], Input(value=str(entry["part_of_speech"]), id=self._edit_ids["pos"], classes="form-control")))
+        view.mount(self._form_row(
+            self.strings["prompt_categories"],
+            Input(value=", ".join(entry.get("categories", [])), id=self._edit_ids["categories"], classes="form-control"),
+        ))
+        self._mount_optional_word_fields(view, entry, self._edit_ids)
         view.mount(Horizontal(
             Button(self.strings["save"], id=self._edit_ids["save"], variant="success"),
             Button(self.strings["copy_word"], id=self._edit_ids["copy"]),
@@ -977,6 +1130,21 @@ root.mainloop()
     def _form_row(self, label: str, control) -> Horizontal:
         return Horizontal(Label(label, classes="form-label"), control, classes="form-row")
 
+    def _mount_optional_word_fields(self, view: ScrollableContainer, entry: dict, ids: dict[str, str]) -> None:
+        fields = (
+            ("gender", "gender"),
+            ("aspect", "grammatical_aspect"),
+            ("case", "governed_case"),
+            ("description", "description"),
+            ("inflections", "inflections"),
+            ("synonyms", "synonyms"),
+        )
+        for field_id, entry_key in fields:
+            view.mount(self._form_row(
+                self.strings[f"prompt_{field_id}"],
+                Input(value=str(entry.get(entry_key) or ""), id=ids[field_id], classes="form-control"),
+            ))
+
     def show_add_word(self) -> None:
         view = self.query_one("#view", ScrollableContainer)
         view.remove_children()
@@ -984,7 +1152,80 @@ root.mainloop()
         view.mount(self._form_row(self.strings["prompt_lemma"], Input(id="word-lemma", classes="form-control")))
         view.mount(self._form_row(self.strings["prompt_translation"], Input(id="word-translation", classes="form-control")))
         view.mount(self._form_row(self.strings["prompt_pos"], Input(value="word", id="word-pos", classes="form-control")))
+        view.mount(self._form_row(self.strings["prompt_categories"], Input(id="word-categories", classes="form-control")))
+        self._mount_optional_word_fields(view, {}, {name: f"word-{name}" for name in ("gender", "aspect", "case", "description", "inflections", "synonyms")})
         view.mount(Horizontal(Button(self.strings["save"], id="save-word", variant="success"), Button(self.strings["back"], id="cancel-form"), classes="actions"))
+
+    def show_categories(self) -> None:
+        categories = self.runner.dict_app.get_categories(self.runner._current_source_lang())
+        self._category_rows = categories
+        self._set_status(f"{len(categories)} categories")
+        view = self.query_one("#view", ScrollableContainer)
+        view.remove_children()
+        view.mount(Label(self.strings["manage_categories"]))
+        self._table_number += 1
+        view.mount(self._table(
+            [self.strings["category_name"], self.strings["category_description"]],
+            [[str(item["name"]), str(item.get("description") or "")] for item in categories],
+            f"categories-table-{self._table_number}",
+        ))
+        view.mount(Horizontal(
+            Button(self.strings["add_category"], id="add-category", variant="primary"),
+            Button(self.strings["back"], id="cancel-form"),
+            classes="actions",
+        ))
+
+    def show_category_form(self, category: dict | None = None) -> None:
+        self._category_form_number += 1
+        suffix = str(self._category_form_number)
+        self._category_ids = {
+            key: f"category-{key}-{suffix}"
+            for key in ("name", "language", "description", "save")
+        }
+        view = self.query_one("#view", ScrollableContainer)
+        view.remove_children()
+        title = self.strings["edit_category"] if category else self.strings["add_category"]
+        view.mount(Label(title))
+        view.mount(self._form_row(
+            self.strings["category_name"],
+            Input(value=str(category.get("name", "")) if category else "", id=self._category_ids["name"], classes="form-control"),
+        ))
+        view.mount(self._form_row(
+            self.strings["prompt_source_lang"],
+            Input(value=str(category.get("language_code", self.runner._current_source_lang())) if category else self.runner._current_source_lang(), id=self._category_ids["language"], classes="form-control"),
+        ))
+        view.mount(self._form_row(
+            self.strings["category_description"],
+            Input(value=str(category.get("description") or "") if category else "", id=self._category_ids["description"], classes="form-control"),
+        ))
+        view.mount(Horizontal(
+            Button(self.strings["save"], id=self._category_ids["save"], variant="success"),
+            Button(self.strings["back"], id="cancel-form"),
+            classes="actions",
+        ))
+        self._edit_entry = category
+
+    def show_words_by_category(self) -> None:
+        categories = self.runner.dict_app.get_categories(self.runner._current_source_lang())
+        self._category_filter_number += 1
+        suffix = str(self._category_filter_number)
+        self._category_filter_ids = {"select": f"category-filter-{suffix}", "apply": f"category-filter-apply-{suffix}"}
+        view = self.query_one("#view", ScrollableContainer)
+        view.remove_children()
+        view.mount(Label(self.strings["view_by_category"]))
+        view.mount(self._form_row(
+            self.strings["category_name"],
+            Select(
+                [(str(item["name"]), str(item["name"])) for item in categories],
+                id=self._category_filter_ids["select"],
+                classes="form-control",
+            ),
+        ))
+        view.mount(Horizontal(
+            Button(self.strings["show_words"], id=self._category_filter_ids["apply"], variant="primary"),
+            Button(self.strings["back"], id="cancel-form"),
+            classes="actions",
+        ))
 
     def show_add_sentence(self) -> None:
         entries = self.runner.dict_app.get_vocabulary(self.runner._current_target_lang(), self.runner._current_source_lang())
@@ -1078,6 +1319,56 @@ root.mainloop()
         ))
         self._set_status(str(self.runner.config_path))
 
+    def show_help(self) -> None:
+        help_path = Path(__file__).with_name("help_content.json")
+        try:
+            with help_path.open("r", encoding="utf-8") as file_handle:
+                help_content = json.load(file_handle)
+        except (OSError, json.JSONDecodeError):
+            self.notify(self.strings["help_unavailable"], severity="error")
+            return
+
+        ui_language = str(self.runner.config.get("ui_lang", "en")).lower()
+        source_language = self.runner._current_source_lang().lower()
+        target_language = self.runner._current_target_lang().lower()
+        application = help_content.get("application", {}).get(ui_language)
+        if application is None:
+            application = help_content.get("application", {}).get("en", {})
+        sections = [application.get("markdown", f"# {application.get('title', self.strings['help'])}\n\n{application.get('text', '')}")]
+        source_text = help_content.get("source_languages", {}).get(source_language, {}).get(ui_language)
+        if source_text is None:
+            source_text = help_content.get("source_languages", {}).get(source_language, {}).get("en")
+        target_text = help_content.get("target_languages", {}).get(target_language, {}).get(ui_language)
+        if target_text is None:
+            target_text = help_content.get("target_languages", {}).get(target_language, {}).get("en")
+        if source_text:
+            sections.extend(["", f"## {self.strings['source_language_help']}\n\n{source_text}"])
+        if target_text:
+            sections.extend(["", f"## {self.strings['target_language_help']}\n\n{target_text}"])
+
+        view = self.query_one("#view", ScrollableContainer)
+        view.remove_children()
+        view.mount(Markdown("\n".join(sections), id="help-markdown"))
+        view.mount(Horizontal(
+            Button(self.strings["help_edit"], id="edit-help", variant="primary"),
+            Button(self.strings["back"], id="cancel-form"),
+            classes="actions",
+        ))
+        self._set_status(f"{ui_language} | {source_language} -> {target_language}")
+
+    def launch_help_editor(self) -> None:
+        editor_path = Path(__file__).with_name("help_editor.py")
+        terminal = shutil.which("x-terminal-emulator")
+        if terminal:
+            subprocess.Popen(
+                [terminal, "-e", sys.executable, str(editor_path)],
+                cwd=str(editor_path.parent),
+            )
+            self.notify(self.strings["help_editor_started"])
+            return
+        subprocess.Popen([sys.executable, str(editor_path)], cwd=str(editor_path.parent))
+        self.notify(self.strings["help_editor_started"])
+
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "ui-language" and event.value is not Select.BLANK:
             self.runner.config["ui_lang"] = str(event.value)
@@ -1090,7 +1381,7 @@ root.mainloop()
         action = event.button.id
         if action in self._menu_actions:
             action = self._menu_actions[action]
-        if action in {"menu-file", "menu-words", "menu-sentences", "menu-audio", "menu-settings"}:
+        if action in {"menu-file", "menu-words", "menu-sentences", "menu-audio"}:
             self.show_menu(action.removeprefix("menu-"))
             return
         if action == "menu-exit":
@@ -1100,6 +1391,14 @@ root.mainloop()
         self._save_context()
         if action == "nav-words":
             self.show_words()
+        elif action == "nav-category-words":
+            self.show_words_by_category()
+        elif action == "nav-categories":
+            self.show_categories()
+        elif action == "nav-help":
+            self.show_help()
+        elif action == "edit-help":
+            self.launch_help_editor()
         elif action == "nav-sentences":
             self.show_sentences()
         elif action == "nav-add-word":
@@ -1114,6 +1413,42 @@ root.mainloop()
             self.show_settings()
         elif action == "cancel-form":
             self.show_words()
+        elif action == "add-category":
+            self.show_category_form()
+        elif action == self._category_ids.get("save"):
+            name = self.query_one(f"#{self._category_ids['name']}", Input).value.strip()
+            language_code = self.query_one(f"#{self._category_ids['language']}", Input).value.strip().lower()
+            description = self.query_one(f"#{self._category_ids['description']}", Input).value.strip() or None
+            if not name or not language_code:
+                self.notify(self.strings["alert_no_match"], severity="error")
+                return
+            if self._edit_entry is None:
+                self.runner.dict_app.add_category(name, language_code, description)
+            else:
+                category_record = Category.get_by_id(self._edit_entry["id"])
+                self.runner.dict_app.update_category(
+                    category_record, name=name, language_code=language_code, description=description
+                )
+            self.show_categories()
+        elif action == self._category_filter_ids.get("apply"):
+            value = self.query_one(f"#{self._category_filter_ids['select']}", Select).value
+            if self._select_is_empty(value):
+                self.notify(self.strings["alert_no_match"], severity="warning")
+                return
+            self.refresh_dashboard(category=str(value))
+        elif action.startswith("context-view-word-") and self._context_word is not None:
+            self.show_edit_word(self._context_word)
+        elif action.startswith("context-speak-word-") and self._context_word is not None:
+            self.run_worker(
+                partial(self._speak_in_background, str(self._context_word["lemma"])),
+                thread=True,
+            )
+        elif action.startswith("context-show-word-sentences-") and self._context_word is not None:
+            self.show_sentences(word_lemma=str(self._context_word["lemma"]))
+        elif action.startswith("context-edit-word-") and self._context_word is not None:
+            self.show_edit_word(self._context_word)
+        elif action.startswith("context-close-"):
+            self.close_menu()
         elif action == self._edit_ids.get("copy"):
             if "lemma" in self._edit_ids:
                 self._copy_to_clipboard(str(self._edit_entry["lemma"]))
@@ -1131,6 +1466,17 @@ root.mainloop()
                         lemma=self.query_one(f"#{self._edit_ids['lemma']}", Input).value,
                         primary_translation=self.query_one(f"#{self._edit_ids['translation']}", Input).value,
                         part_of_speech=self.query_one(f"#{self._edit_ids['pos']}", Input).value,
+                        categories=[
+                            item.strip()
+                            for item in self.query_one(f"#{self._edit_ids['categories']}", Input).value.split(",")
+                            if item.strip()
+                        ],
+                        gender=self.query_one(f"#{self._edit_ids['gender']}", Input).value or None,
+                        grammatical_aspect=self.query_one(f"#{self._edit_ids['aspect']}", Input).value or None,
+                        governed_case=self.query_one(f"#{self._edit_ids['case']}", Input).value or None,
+                        description=self.query_one(f"#{self._edit_ids['description']}", Input).value or None,
+                        inflections=self.query_one(f"#{self._edit_ids['inflections']}", Input).value or None,
+                        synonyms=self.query_one(f"#{self._edit_ids['synonyms']}", Input).value or None,
                     )
                 self.show_words()
             else:
@@ -1154,7 +1500,18 @@ root.mainloop()
                 "translation": self.query_one("#word-translation", Input).value,
                 "pos": self.query_one("#word-pos", Input).value or "word",
                 "target": self.runner._current_target_lang(), "source": self.runner._current_source_lang(),
-                "categories": "", "speak": False,
+                "categories": [
+                    item.strip()
+                    for item in self.query_one("#word-categories", Input).value.split(",")
+                    if item.strip()
+                ],
+                "speak": False,
+                "gender": self.query_one("#word-gender", Input).value or None,
+                "grammatical_aspect": self.query_one("#word-aspect", Input).value or None,
+                "governed_case": self.query_one("#word-case", Input).value or None,
+                "description": self.query_one("#word-description", Input).value or None,
+                "inflections": self.query_one("#word-inflections", Input).value or None,
+                "synonyms": self.query_one("#word-synonyms", Input).value or None,
             })())
             self.notify(self.strings["word_added"])
             self.show_words()

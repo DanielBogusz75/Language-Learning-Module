@@ -241,6 +241,51 @@ class UniversalDictionary:
         except Word.DoesNotExist:
             return None
 
+    def get_categories(self, language_code: str = "nl") -> list[dict]:
+        """Return categories for a source language, ordered by name."""
+        return [
+            {
+                "id": category.id,
+                "name": category.name,
+                "language_code": category.language_code,
+                "description": category.description,
+            }
+            for category in Category.select()
+            .where(Category.language_code == language_code.lower())
+            .order_by(Category.name)
+        ]
+
+    def add_category(
+        self, name: str, language_code: str = "nl", description: str | None = None
+    ) -> Category:
+        """Create or return a category for a source language."""
+        category, created = Category.get_or_create(
+            name=name.strip(), language_code=language_code.lower(),
+            defaults={"description": description or None},
+        )
+        if not created and description is not None:
+            category.description = description or None
+            category.save()
+        return category
+
+    def update_category(
+        self,
+        category: Category,
+        *,
+        name: str | None = None,
+        language_code: str | None = None,
+        description: str | None = None,
+    ) -> Category:
+        """Update a category and preserve its word relationships."""
+        if name is not None:
+            category.name = name.strip()
+        if language_code is not None:
+            category.language_code = language_code.lower()
+        if description is not None:
+            category.description = description or None
+        category.save()
+        return category
+
     def update_word(
         self,
         word: Word,
@@ -279,13 +324,18 @@ class UniversalDictionary:
         return word
 
     def get_vocabulary(
-        self, target_lang: str, source_lang: str = "nl"
+        self, target_lang: str, source_lang: str = "nl", category: str | None = None
     ) -> list[dict]:
         """Fetch all vocabulary entries matching a specific language pair."""
         query = Word.select().where(
             (Word.target_lang == target_lang.lower())
             & (Word.source_lang == source_lang.lower())
         )
+        if category:
+            query = query.join(WordCategory).join(Category).where(
+                (Category.name == category)
+                & (Category.language_code == source_lang.lower())
+            )
 
         entries = []
         for word in query:
@@ -294,6 +344,12 @@ class UniversalDictionary:
                     "lemma": word.lemma,
                     "translation": word.primary_translation,
                     "part_of_speech": word.part_of_speech,
+                    "gender": word.gender,
+                    "grammatical_aspect": word.grammatical_aspect,
+                    "governed_case": word.governed_case,
+                    "description": word.description,
+                    "inflections": word.inflections,
+                    "synonyms": word.synonyms,
                     "categories": [wc.category.name for wc in word.categories],
                     "sentence_count": word.sentences.count(),
                 }
